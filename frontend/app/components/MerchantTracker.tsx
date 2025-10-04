@@ -1,86 +1,323 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Transaction, SearchParams } from '@/types';
-import { MerchantAPI } from '@/lib/api';
 import TransactionTable from './TransactionTable';
 import LoadingSpinner from './LoadingSpinner';
 import { Alert, Button } from '@heroui/react';
-import { Search, RefreshCw } from 'lucide-react';
-import dummyTransactions from '@/app/data/dummyTransaction';
+import { Search, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { ApiResponse } from '@/types/api';
+import { useWebSocket } from '@/hooks/useWebSocket';
+
+// Interface untuk WebSocket message berdasarkan struktur yang benar
+interface WebSocketMessage {
+    type: string;
+    // Data transaction langsung di root object
+    amount: number;
+    currency: string;
+    id: number;
+    merchant_id: string;
+    paid_date: string | null;
+    partner_reference_no: string;
+    reference_no: string;
+    status: string;
+    timestamp: number;
+    transaction_date: string;
+    trx_id: string;
+    updated_at: string;
+}
+
+// Extended Transaction interface dengan nomor urut
+interface TransactionWithNumber extends Transaction {
+    rowNumber: number;
+}
 
 export default function MerchantTracker() {
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [transactions, setTransactions] = useState<TransactionWithNumber[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hasSearched, setHasSearched] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
-    // Load dummy data on component mount
+    // Gunakan custom hook untuk WebSocket
+    const { isConnected, notification, reconnectWebSocket, ws } = useWebSocket();
+
+    // Fungsi untuk menambahkan nomor urut berdasarkan halaman
+    const addRowNumbers = (transactions: Transaction[], page: number, limit: number): TransactionWithNumber[] => {
+        const startNumber = (page - 1) * limit + 1;
+        return transactions.map((transaction, index) => ({
+            ...transaction,
+            rowNumber: startNumber + index
+        }));
+    };
+
+    // Handler untuk WebSocket messages dengan error handling yang lebih baik
     useEffect(() => {
-        // Simulate initial data load
-        setTransactions(dummyTransactions);
-    }, []);
+        if (!ws) {
+            console.log('WebSocket not available');
+            return;
+        }
 
-    const handleSearch = async (params: SearchParams) => {
+        const handleMessage = (event: MessageEvent) => {
+            try {
+                console.log('📨 Raw WebSocket message received:', event.data);
+                const message: WebSocketMessage = JSON.parse(event.data);
+                console.log('📨 Parsed WebSocket message:', message);
+                handleWebSocketMessage(message);
+            } catch (err) {
+                console.error('❌ Error parsing WebSocket message:', err);
+            }
+        };
+
+        // Tambahkan error handling untuk event listener
+        try {
+            ws.addEventListener('message', handleMessage);
+            console.log('✅ WebSocket message listener added');
+        } catch (err) {
+            console.error('❌ Error adding WebSocket message listener:', err);
+        }
+
+        return () => {
+            if (ws) {
+                try {
+                    ws.removeEventListener('message', handleMessage);
+                    console.log('🧹 WebSocket message listener removed');
+                } catch (err) {
+                    console.error('❌ Error removing WebSocket message listener:', err);
+                }
+            }
+        };
+    }, [ws]);
+
+    const handleWebSocketMessage = (message: WebSocketMessage) => {
+        console.log('🔄 Handling WebSocket message type:', message.type);
+        console.log('🔍 Message content:', {
+            type: message.type,
+            reference_no: message.reference_no,
+            status: message.status,
+            amount: message.amount
+        });
+
+        switch (message.type) {
+            case 'TRANSACTION_UPDATE':
+                // PERBAIKAN: Kirim message langsung, bukan message.data
+                handleTransactionUpdate(message);
+                break;
+            default:
+                console.log('Unknown message type:', message.type);
+        }
+    };
+
+    const handleTransactionUpdate = (transactionData: WebSocketMessage) => {
+        console.log('🔄 Processing transaction update:', transactionData);
+
+        // Validasi data yang diterima
+        if (!transactionData) {
+            console.error('❌ Transaction data is undefined or null');
+            return;
+        }
+
+        // Debug: Log semua properties yang tersedia
+        console.log('🔍 Available properties in transactionData:', Object.keys(transactionData));
+
+        // Gunakan reference_no dari data (sesuai struktur yang benar)
+        const referenceNo = transactionData.reference_no;
+
+        if (!referenceNo) {
+            console.error('❌ No reference number found in update:', transactionData);
+            return;
+        }
+
+        console.log('✅ Reference number found:', referenceNo);
+        console.log('✅ Transaction status:', transactionData.status);
+        console.log('✅ Transaction amount:', transactionData.amount);
+
+        setTransactions(prevTransactions => {
+            const existingIndex = prevTransactions.findIndex(
+                transaction => transaction.referenceNo === referenceNo || transaction.referenceNo === referenceNo
+            );
+
+            console.log('🔍 Existing transaction index:', existingIndex);
+
+            let newTransactions: TransactionWithNumber[];
+
+            if (existingIndex >= 0) {
+                // Update existing transaction
+                newTransactions = [...prevTransactions];
+                newTransactions[existingIndex] = {
+                    ...newTransactions[existingIndex],
+                    // Update fields yang penting
+                    amount: transactionData.amount,
+                    currency: transactionData.currency,
+                    status: transactionData.status,
+                    paid_date: transactionData.paid_date,
+                    updated_at: transactionData.updated_at,
+                    // Pastikan reference number konsisten
+                    referenceNo: referenceNo,
+                    reference_no: referenceNo,
+                    // Pertahankan rowNumber yang ada
+                    rowNumber: newTransactions[existingIndex].rowNumber
+                };
+                console.log('✅ Updated existing transaction:', referenceNo);
+            } else {
+                // Add new transaction at the beginning
+                const newTransaction: TransactionWithNumber = {
+                    // Map semua fields dari WebSocket message
+                    amount: transactionData.amount,
+                    currency: transactionData.currency,
+                    merchant_id: transactionData.merchant_id,
+                    paid_date: transactionData.paid_date,
+                    partner_reference_no: transactionData.partner_reference_no,
+                    referenceNo: referenceNo,
+                    reference_no: referenceNo,
+                    status: transactionData.status,
+                    timestamp: transactionData.timestamp,
+                    transaction_date: transactionData.transaction_date,
+                    trx_id: transactionData.trx_id,
+                    updated_at: transactionData.updated_at,
+                    rowNumber: 1 // Nomor urut untuk transaksi baru
+                };
+                newTransactions = [newTransaction, ...prevTransactions];
+                console.log('✅ Added new transaction:', referenceNo);
+            }
+
+            // Update nomor urut untuk semua transaksi
+            const renumberedTransactions = newTransactions.map((transaction, index) => ({
+                ...transaction,
+                rowNumber: index + 1
+            }));
+
+            console.log('📊 Total transactions after update:', renumberedTransactions.length);
+            return renumberedTransactions;
+        });
+
+        highlightTransactionRow(referenceNo);
+    };
+
+    const highlightTransactionRow = (referenceNo: string) => {
+        // Gunakan setTimeout untuk memastikan DOM sudah ter-render
+        setTimeout(() => {
+            try {
+                const row = document.querySelector(`[data-reference="${referenceNo}"]`);
+                if (row) {
+                    row.classList.add('transaction-updated');
+                    setTimeout(() => {
+                        row.classList.remove('transaction-updated');
+                    }, 3000);
+                    console.log('✅ Highlighted transaction row:', referenceNo);
+                } else {
+                    console.log('⚠️ Transaction row not found for highlighting:', referenceNo);
+                }
+            } catch (err) {
+                console.error('❌ Error highlighting transaction row:', err);
+            }
+        }, 100); // Tambahkan delay sedikit lebih lama
+    };
+
+    // Fungsi untuk fetch data dari API
+    const fetchTransactions = async (params: SearchParams = {}) => {
         setIsLoading(true);
         setError(null);
-        setHasSearched(true);
 
         try {
-            // Simulate API call delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const queryParams = new URLSearchParams();
 
-            // For demo purposes, filter transactions based on search params
-            let filteredTransactions = [...dummyTransactions];
-
-            // Filter by reference number if provided
             if (params.reference_number) {
-                filteredTransactions = filteredTransactions.filter(tx =>
-                    tx.reference_number.toLowerCase().includes(params.reference_number!.toLowerCase())
-                );
+                queryParams.append('referenceNumber', params.reference_number);
             }
-
-            // Filter by status if provided
             if (params.status && params.status !== 'all') {
-                filteredTransactions = filteredTransactions.filter(tx =>
-                    tx.status === params.status
+                queryParams.append('status', params.status);
+            }
+            if (params.start_date) {
+                queryParams.append('startDate', params.start_date);
+            }
+            if (params.end_date) {
+                queryParams.append('endDate', params.end_date);
+            }
+            if (params.search) {
+                queryParams.append('search', params.search);
+            }
+            if (params.page) {
+                queryParams.append('page', params.page.toString());
+                setCurrentPage(params.page);
+            }
+            if (params.limit) {
+                queryParams.append('limit', params.limit.toString());
+                setItemsPerPage(params.limit);
+            }
+
+            const url = `http://localhost:8000/api/v1/transactions${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+
+            console.log('📡 Fetching transactions from:', url);
+
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data: ApiResponse = await response.json();
+            console.log('📦 API response:', data);
+
+            if (data.responseCode === '200') {
+                const normalizedData = data.data.map((transaction: any) => ({
+                    ...transaction,
+                    referenceNo: transaction.referenceNo || transaction.reference_no,
+                    reference_no: transaction.reference_no || transaction.referenceNo
+                }));
+
+                // Tambahkan nomor urut
+                const transactionsWithNumbers = addRowNumbers(
+                    normalizedData,
+                    params.page || currentPage,
+                    params.limit || itemsPerPage
                 );
+
+                setTransactions(transactionsWithNumbers);
+                if (normalizedData.length === 0) {
+                    setError('Tidak ada transaksi yang ditemukan dengan kriteria pencarian tersebut');
+                }
+            } else {
+                throw new Error(data.responseMessage || 'Terjadi kesalahan pada server');
             }
 
-            // Filter by date range if provided
-            if (params.start_date && params.end_date) {
-                filteredTransactions = filteredTransactions.filter(tx => {
-                    const txDate = new Date(tx.transaction_date);
-                    const startDate = new Date(params.start_date!);
-                    const endDate = new Date(params.end_date!);
-                    return txDate >= startDate && txDate <= endDate;
-                });
-            }
-
-            setTransactions(filteredTransactions);
-
-            // Show message if no results found
-            if (filteredTransactions.length === 0) {
-                setError('Tidak ada transaksi yang ditemukan dengan kriteria pencarian tersebut');
-            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
+            console.error('Error fetching transactions:', err);
+            setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat mengambil data');
             setTransactions([]);
         } finally {
             setIsLoading(false);
         }
     };
 
+    // Load initial data on component mount - hanya di client
+    useEffect(() => {
+        fetchTransactions();
+    }, []);
+
+    const handleSearch = async (params: SearchParams) => {
+        setHasSearched(true);
+        await fetchTransactions(params);
+    };
+
     const handleRetry = () => {
         if (transactions.length === 0 && hasSearched) {
-            handleSearch({});
+            fetchTransactions({});
         }
     };
 
     const handleReset = () => {
-        setTransactions(dummyTransactions);
+        setTransactions([]);
         setError(null);
         setHasSearched(false);
+        setCurrentPage(1);
+        fetchTransactions();
     };
 
     return (
@@ -97,24 +334,47 @@ export default function MerchantTracker() {
                     <p className="text-gray-600 max-w-2xl mx-auto">
                         Lacak status transaksi merchant Anda secara real-time
                     </p>
+                </div>
 
-                    {/* Demo Notice */}
-                    <div className="mt-4">
-                        {/* <Alert
-                            color="warning"
-                            variant="flat"
-                            description="Sedang menggunakan data dummy untuk demonstrasi"
-                            className="max-w-md mx-auto bg-gray-100 text-gray-500 rounded-lg"
-                        /> */}
+                {/* Connection Status & Notification */}
+                <div className="flex flex-col items-center gap-3 mb-6">
+                    {/* Connection Status */}
+                    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${isConnected
+                        ? 'bg-green-100 text-green-800 border border-green-200'
+                        : 'bg-red-100 text-red-800 border border-red-200'
+                        }`}>
+                        {isConnected ? (
+                            <>
+                                <Wifi className="w-4 h-4" />
+                                Connected - Real-time Updates Active
+                            </>
+                        ) : (
+                            <>
+                                <WifiOff className="w-4 h-4" />
+                                Disconnected - Reconnecting...
+                            </>
+                        )}
                     </div>
+
+                    {/* Notification */}
+                    {notification && (
+                        <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${notification.type === 'success'
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : notification.type === 'error'
+                                ? 'bg-red-100 text-red-800 border border-red-200'
+                                : 'bg-blue-100 text-blue-800 border border-blue-200'
+                            }`}>
+                            {notification.message}
+                        </div>
+                    )}
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex justify-center gap-4 mb-6">
+                <div className="flex justify-center gap-4 mb-6 flex-wrap">
                     <Button
                         color="primary"
                         startContent={<Search className="w-4 h-4" />}
-                        onPress={() => handleSearch({})}
+                        onPress={() => fetchTransactions({})}
                         isLoading={isLoading}
                         className="py-2 px-6 bg-gray-100 hover:bg-gray-200 rounded-lg"
                     >
@@ -130,6 +390,18 @@ export default function MerchantTracker() {
                     >
                         Reset
                     </Button>
+
+                    {!isConnected && (
+                        <Button
+                            color="warning"
+                            variant="flat"
+                            startContent={<Wifi className="w-4 h-4" />}
+                            onPress={reconnectWebSocket}
+                            className="py-2 px-6 bg-yellow-100 hover:bg-yellow-200 rounded-lg"
+                        >
+                            Reconnect
+                        </Button>
+                    )}
                 </div>
 
                 {/* Error Display */}
@@ -163,11 +435,15 @@ export default function MerchantTracker() {
                         <>
                             <div className="text-center text-sm text-gray-500">
                                 Menampilkan {transactions.length} transaksi
+                                {isConnected && ' • Real-time updates active'}
+                                {transactions.length > 0 && ` • Halaman ${currentPage}`}
                             </div>
                             <TransactionTable
                                 transactions={transactions}
                                 onSearch={handleSearch}
                                 isLoading={isLoading}
+                                currentPage={currentPage}
+                                itemsPerPage={itemsPerPage}
                             />
                         </>
                     )}

@@ -53,6 +53,9 @@ func (s *TransactionService) GenerateQR(req model.GenerateQRRequest) (model.Gene
 
 	// 5. Jika sudah ada, return data existing
 	if existing != nil {
+		// Broadcast transaksi existing
+		s.broadcastTransactionUpdate(existing)
+
 		return model.GenerateQRResponse{
 			ResponseCode:       "2004700",
 			ResponseMessage:    "Successful",
@@ -79,7 +82,7 @@ func (s *TransactionService) GenerateQR(req model.GenerateQRRequest) (model.Gene
 		TransactionDate:    time.Now(),
 	}
 
-	_, err = s.Repo.Save(transaction)
+	savedTransaction, err := s.Repo.Save(transaction)
 	if err != nil {
 		// Tangani error duplicate secara spesifik
 		if strings.Contains(err.Error(), "23505") ||
@@ -90,7 +93,10 @@ func (s *TransactionService) GenerateQR(req model.GenerateQRRequest) (model.Gene
 		return model.GenerateQRResponse{}, fmt.Errorf("failed to save transaction: %w", err)
 	}
 
-	// 9. Return response sukses
+	// 9. Broadcast transaksi baru yang berhasil dibuat
+	s.broadcastTransactionUpdate(&savedTransaction)
+
+	// 10. Return response sukses
 	return model.GenerateQRResponse{
 		ResponseCode:       "2004700",
 		ResponseMessage:    "Successful",
@@ -251,25 +257,24 @@ func (s *TransactionService) GetTransactions(req model.GetTransactionsRequest) (
 	return response, nil
 }
 
+// broadcastTransactionUpdate mengirim update transaksi via WebSocket
 func (s *TransactionService) broadcastTransactionUpdate(transaction *model.Transaction) {
 	if s.WSHub != nil {
+		// Prepare data untuk broadcast dengan snake_case
 		updateData := map[string]interface{}{
-			"type":               "TRANSACTION_UPDATE",
-			"id":                 transaction.ID,
-			"referenceNo":        transaction.ReferenceNo,
-			"partnerReferenceNo": transaction.PartnerReferenceNo,
-			"merchantId":         transaction.MerchantID,
-			"amount":             transaction.Amount,
-			"status":             transaction.Status,
-			"transactionDate":    transaction.TransactionDate.Format(time.RFC3339),
-			"paidDate":           nil,
-			"updatedAt":          transaction.UpdatedAt.Format(time.RFC3339),
-			"timestamp":          time.Now().Unix(),
-		}
-
-		// Format paidDate jika ada
-		if transaction.PaidDate != nil {
-			updateData["paidDate"] = transaction.PaidDate.Format(time.RFC3339)
+			"type":                 "TRANSACTION_UPDATE",
+			"id":                   transaction.ID,
+			"merchant_id":          transaction.MerchantID, // snake_case
+			"amount":               transaction.Amount,
+			"paid_date":            transaction.PaidDate,
+			"partner_reference_no": transaction.PartnerReferenceNo, // snake_case
+			"reference_no":         transaction.ReferenceNo,        // snake_case
+			"status":               transaction.Status,
+			"timestamp":            time.Now().Unix(),
+			"transaction_date":     transaction.TransactionDate,
+			"updated_at":           transaction.UpdatedAt, // snake_case
+			"currency":             transaction.Currency,
+			"trx_id":               transaction.TrxID, // snake_case
 		}
 
 		// Convert ke JSON dan broadcast
