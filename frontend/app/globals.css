@@ -1,51 +1,43 @@
 @import "tailwindcss";
 
 .transaction-updated {
-    animation: highlight-pulse 2s ease-in-out;
-    border-left: 4px solid #3b82f6 !important;
+    animation: highlight-green-pulse 5s ease-in-out;
+    background-color: rgba(220, 252, 231, 0.308) !important;
+    /* green-100 */
+    border-left: 4px solid #16a34a !important;
+    /* green-600 */
 }
 
-
-.new-row-highlight {
-    animation: highlightSlideIn 0.6s ease-out;
-    background: linear-gradient(90deg, #f0f9ff 0%, #ffffff 50%);
-    border-left: 4px solid #3b82f6;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
-}
-
-
-@keyframes highlight-pulse {
+@keyframes highlight-green-pulse {
     0% {
-        background-color: rgba(59, 130, 246, 0.1);
+        background-color: rgb(220 252 231);
+        /* green-100 */
+        border-left-color: #16a34a;
+        /* green-600 */
     }
 
     50% {
-        background-color: rgba(59, 130, 246, 0.2);
+        background-color: rgb(187 247 208);
+        /* green-200 */
+        border-left-color: #15803d;
+        /* green-700 */
+    }
+
+    80% {
+        background-color: rgb(220 252 231);
+        /* green-100 */
+        border-left-color: #16a34a;
+        /* green-600 */
     }
 
     100% {
         background-color: transparent;
+        border-left-color: transparent;
     }
 }
 
-@keyframes highlightSlideIn {
-    0% {
-        transform: translateX(-10px);
-        opacity: 0;
-        background: #f0f9ff;
-    }
-
-    50% {
-        transform: translateX(0);
-        opacity: 1;
-        background: #f0f9ff;
-    }
-
-    100% {
-        background: linear-gradient(90deg, #f0f9ff 0%, #ffffff 50%);
-    }
-}
-
-.new-row-highlight:hover {
-    background: linear-gradient(90deg, #e0f2fe 0%, #f8fafc 50%);
+/* Pastikan background hijau tetap selama 5 detik */
+.transaction-updated {
+    animation-fill-mode: forwards;
+    animation-duration: 5s;
 }

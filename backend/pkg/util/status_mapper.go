@@ -20,13 +20,14 @@ func NewStatusMapper() StatusMapper {
 		"Pending": "PENDING",
 		"Expired": "EXPIRED",
 		"Paid":    "PAID",
+		"PAID":    "PAID",
 		"SUCCESS": "PAID",
 		"FAILED":  "FAILED",
 		"PENDING": "PENDING",
 		"EXPIRED": "EXPIRED",
 	}
 
-	validStatuses := []string{"Success", "Failed", "Pending", "Expired", "Paid", "SUCCESS", "FAILED", "PENDING", "EXPIRED"}
+	validStatuses := []string{"Success", "Failed", "Pending", "Expired", "Paid", "PAID", "SUCCESS", "FAILED", "PENDING", "EXPIRED"}
 
 	return &statusMapper{
 		statusMapping: mapping,
