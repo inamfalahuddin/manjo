@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardHeader, CardBody, Button, Divider, Chip } from '@heroui/react';
-import { ArrowLeft, Download, Copy, CheckCircle, Clock, QrCode, DollarSign, Calendar, User, Hash } from 'lucide-react';
+import { Card, CardHeader, CardBody, Button, Divider, Chip, Spinner } from '@heroui/react';
+import { ArrowLeft, Download, Copy, CheckCircle, Clock, QrCode, DollarSign, Calendar, User, Hash, CreditCard, XCircle } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { toast, ToastContainer } from 'react-toastify';
+import { generateSignature } from '@/lib/signature';
 
 // Fungsi untuk decode Base64 URL-safe
 const decodeFromBase64URL = (base64url: string): any => {
@@ -49,9 +51,11 @@ export default function PaymentPage() {
     const params = useParams();
     const [paymentData, setPaymentData] = useState(fallbackPaymentData);
     const [isLoading, setIsLoading] = useState(true);
+    const [isPaying, setIsPaying] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [qrCodeUrl, setQrCodeUrl] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [paymentResult, setPaymentResult] = useState<any>(null);
 
     useEffect(() => {
         const loadPaymentData = async () => {
@@ -125,6 +129,76 @@ export default function PaymentPage() {
         loadPaymentData();
     }, [params.encodedData]);
 
+    // Fungsi untuk proses pembayaran
+    const handlePayment = async () => {
+        setIsPaying(true);
+        setPaymentResult(null);
+        setError(null);
+
+        try {
+            // Siapkan data untuk dikirim ke API
+            const paymentRequestData = {
+                originalReferenceNo: paymentData.originalReferenceNo,
+                originalPartnerReferenceNo: paymentData.originalPartnerReferenceNo,
+                transactionStatusDesc: "Success", // Set status menjadi Pending
+                paidTime: new Date().toISOString(), // Waktu sekarang
+                amount: {
+                    value: paymentData.amount.value,
+                    currency: paymentData.amount.currency
+                }
+            };
+
+            console.log('Mengirim data pembayaran ke API:', paymentRequestData);
+            const requestBody = JSON.stringify(paymentRequestData);
+
+            const secretKey: string = process.env.NEXT_PUBLIC_API_SECRET_KEY || ''
+            let signature: string;
+
+            try {
+                signature = await generateSignature(requestBody, secretKey);
+            } catch (sigError) {
+                console.error('Error generating signature:', sigError);
+                throw new Error('Gagal menghasilkan signature untuk otentikasi');
+            }
+
+            // Kirim request ke API
+            const response = await fetch('http://localhost:8000/api/v1/qr/payment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Signature': signature
+                },
+                body: JSON.stringify(paymentRequestData)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            }
+
+            const result = await response.json();
+            setPaymentResult(result);
+
+            console.log('Response dari API pembayaran:', result);
+
+            // Update status pembayaran di local state
+            setPaymentData(prev => ({
+                ...prev,
+                transactionStatusDesc: "Success",
+                paidTime: paymentRequestData.paidTime
+            }));
+
+            toast.success('Pembayaran berhasil diproses!');
+
+        } catch (err) {
+            console.error('Error processing payment:', err);
+            setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat memproses pembayaran');
+            toast.error('Gagal memproses pembayaran');
+        } finally {
+            setIsPaying(false);
+        }
+    };
+
     const handleCopyToClipboard = (text: string, field: string) => {
         navigator.clipboard.writeText(text);
         setCopiedField(field);
@@ -160,16 +234,10 @@ export default function PaymentPage() {
     };
 
     const getStatusColor = (status: string) => {
-        switch (status.toLowerCase()) {
-            case 'success':
-                return 'success';
-            case 'pending':
-                return 'warning';
-            case 'failed':
-                return 'danger';
-            default:
-                return 'default';
+        if (isPaying || status.toLowerCase() === 'success') {
+            return 'success';
         }
+        return 'warning';
     };
 
     if (isLoading) {
@@ -185,7 +253,7 @@ export default function PaymentPage() {
         );
     }
 
-    if (error) {
+    if (error && !paymentData) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8">
                 <div className="container mx-auto px-4 max-w-4xl">
@@ -210,6 +278,8 @@ export default function PaymentPage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8">
+            <ToastContainer />
+
             <div className="container mx-auto px-4 max-w-4xl">
                 {/* Header */}
                 <div className="text-center mb-8">
@@ -245,6 +315,13 @@ export default function PaymentPage() {
                     </Button>
                 </div>
 
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-red-700 text-sm">{error}</p>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* QR Code Section */}
                     <div className="lg:col-span-1">
@@ -269,12 +346,19 @@ export default function PaymentPage() {
                                     {/* Status */}
                                     <div className="flex justify-center">
                                         <Chip
-                                            color={getStatusColor(paymentData.transactionStatusDesc)}
+                                            color={
+                                                isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                    ? 'success'
+                                                    : 'warning'
+                                            }
                                             variant="flat"
                                             size="lg"
                                             className="font-semibold"
                                         >
-                                            {paymentData.transactionStatusDesc}
+                                            {isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                ? 'Paid'
+                                                : 'Pending'
+                                            }
                                         </Chip>
                                     </div>
 
@@ -286,10 +370,38 @@ export default function PaymentPage() {
                                         </p>
                                     </div>
 
+                                    {/* Tombol Bayar */}
+                                    {/* Tombol Bayar */}
+                                    <div className="pt-4 border-t border-gray-200">
+                                        <Button
+                                            color="primary"
+                                            startContent={isPaying ? <Spinner size="sm" /> : <CreditCard className="w-4 h-4" />}
+                                            onPress={handlePayment}
+                                            isLoading={isPaying}
+                                            isDisabled={isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'}
+                                            className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg"
+                                            size="lg"
+                                        >
+                                            {isPaying
+                                                ? 'Memproses...'
+                                                : paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                    ? 'Sudah Dibayar'
+                                                    : 'Bayar Sekarang'
+                                            }
+                                        </Button>
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            {paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                ? 'Pembayaran telah berhasil diproses'
+                                                : 'Klik tombol di atas untuk menyelesaikan pembayaran'
+                                            }
+                                        </p>
+                                    </div>
+
                                     {/* Action Buttons */}
                                     <div className="flex flex-col gap-2">
                                         <Button
                                             color="primary"
+                                            variant="flat"
                                             startContent={<Download className="w-4 h-4" />}
                                             onPress={handleDownloadQR}
                                             className="w-full"
@@ -325,47 +437,52 @@ export default function PaymentPage() {
                             </CardHeader>
                             <CardBody className="p-6 space-y-6">
                                 {/* Payment Status */}
-                                <div className={`border rounded-lg p-4 ${paymentData.transactionStatusDesc.toLowerCase() === 'success'
-                                        ? 'bg-green-50 border-green-200'
-                                        : paymentData.transactionStatusDesc.toLowerCase() === 'pending'
-                                            ? 'bg-yellow-50 border-yellow-200'
-                                            : 'bg-red-50 border-red-200'
+                                <div className={`border rounded-lg p-4 ${isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                    ? 'bg-green-50 border-green-200'  // Warna hijau jika paid/success
+                                    : 'bg-yellow-50 border-yellow-200'  // Warna kuning jika pending
                                     }`}>
                                     <div className="flex items-center gap-3">
-                                        <CheckCircle className={`w-6 h-6 ${paymentData.transactionStatusDesc.toLowerCase() === 'success'
-                                                ? 'text-green-600'
-                                                : paymentData.transactionStatusDesc.toLowerCase() === 'pending'
-                                                    ? 'text-yellow-600'
-                                                    : 'text-red-600'
-                                            }`} />
+                                        {/* Icon berdasarkan status */}
+                                        {isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success' ? (
+                                            <CheckCircle className="w-6 h-6 text-green-600" />
+                                        ) : (
+                                            <Clock className="w-6 h-6 text-yellow-600" />
+                                        )}
+
                                         <div>
-                                            <h3 className={`font-semibold ${paymentData.transactionStatusDesc.toLowerCase() === 'success'
-                                                    ? 'text-green-800'
-                                                    : paymentData.transactionStatusDesc.toLowerCase() === 'pending'
-                                                        ? 'text-yellow-800'
-                                                        : 'text-red-800'
+                                            <h3 className={`font-semibold ${isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                ? 'text-green-800'  // Teks hijau jika paid/success
+                                                : 'text-yellow-800'  // Teks kuning jika pending
                                                 }`}>
-                                                {paymentData.transactionStatusDesc === 'Success' ? 'Pembayaran Berhasil' :
-                                                    paymentData.transactionStatusDesc === 'Pending' ? 'Menunggu Pembayaran' : 'Pembayaran Gagal'}
+                                                {isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                    ? 'Pembayaran Berhasil'  // Teks sukses
+                                                    : 'Menunggu Pembayaran'  // Teks pending
+                                                }
                                             </h3>
-                                            <p className={`text-sm ${paymentData.transactionStatusDesc.toLowerCase() === 'success'
-                                                    ? 'text-green-600'
-                                                    : paymentData.transactionStatusDesc.toLowerCase() === 'pending'
-                                                        ? 'text-yellow-600'
-                                                        : 'text-red-600'
+
+                                            <p className={`text-sm ${isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                ? 'text-green-600'  // Teks hijau jika paid/success
+                                                : 'text-yellow-600'  // Teks kuning jika pending
                                                 }`}>
-                                                {paymentData.transactionStatusDesc === 'Success'
+                                                {isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
                                                     ? `Transaksi Anda telah berhasil diproses pada ${formatDate(paymentData.paidTime)}`
-                                                    : paymentData.transactionStatusDesc === 'Pending'
-                                                        ? `Menunggu pembayaran - dibuat pada ${formatDate(paymentData.paidTime)}`
-                                                        : `Pembayaran gagal diproses`
+                                                    : `Menunggu pembayaran - dibuat pada ${formatDate(paymentData.paidTime)}`
                                                 }
                                             </p>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Rest of your existing JSX remains the same */}
+                                {/* Payment Result */}
+                                {paymentResult && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <h4 className="font-semibold text-blue-800 mb-2">Hasil Pembayaran</h4>
+                                        <pre className="text-sm overflow-x-auto bg-white p-3 rounded border">
+                                            {JSON.stringify(paymentResult, null, 2)}
+                                        </pre>
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* Transaction Information */}
                                     <div className="space-y-4">
@@ -416,12 +533,19 @@ export default function PaymentPage() {
                                             <div>
                                                 <span className="text-sm text-gray-600">Status:</span> <br />
                                                 <Chip
-                                                    color={getStatusColor(paymentData.transactionStatusDesc)}
+                                                    color={
+                                                        isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                            ? 'success'
+                                                            : 'warning'
+                                                    }
                                                     variant="flat"
                                                     size="sm"
                                                     className="font-semibold mt-1"
                                                 >
-                                                    {paymentData.transactionStatusDesc}
+                                                    {isPaying || paymentData.transactionStatusDesc.toLowerCase() === 'success'
+                                                        ? 'Paid'
+                                                        : 'Pending'
+                                                    }
                                                 </Chip>
                                             </div>
                                         </div>

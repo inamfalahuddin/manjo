@@ -5,6 +5,7 @@ import { ArrowLeft, Search, Calendar, User, DollarSign, Hash, CreditCard, Plus, 
 import { useState } from "react";
 import crypto from 'crypto';
 import { toast, ToastContainer } from 'react-toastify';  // Import toastify
+import { generateSignature, generateSignatureAlt } from "@/lib/signature";
 
 export default function GeneratePage() {
     const [formData, setFormData] = useState({
@@ -26,36 +27,6 @@ export default function GeneratePage() {
     const [error, setError] = useState<string | null>(null);
     const [paymentRequest, setPaymentRequest] = useState<string>("");
 
-    // Fungsi untuk generate HMAC SHA256 signature
-    const generateSignature = async (data: string, secret: string): Promise<string> => {
-        // Untuk environment browser, kita gunakan Web Crypto API
-        const encoder = new TextEncoder();
-        const keyData = encoder.encode(secret);
-        const messageData = encoder.encode(data);
-
-        const key = await crypto.subtle.importKey(
-            'raw',
-            keyData,
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign']
-        );
-        const signature = await crypto.subtle.sign('HMAC', key, messageData);
-        // Convert signature to base64
-        const signatureArray = Array.from(new Uint8Array(signature));
-        const signatureBase64 = btoa(String.fromCharCode(...signatureArray));
-        return signatureBase64;
-    };
-
-    // Alternatif menggunakan crypto-js (jika Web Crypto tidak tersedia)
-    const generateSignatureAlt = async (data: string, secret: string): Promise<string> => {
-        // Fallback menggunakan crypto-js jika diperlukan
-        // Anda perlu install crypto-js: npm install crypto-js
-        const CryptoJS = await import('crypto-js');
-        const hash = CryptoJS.HmacSHA256(data, secret);
-        return CryptoJS.enc.Base64.stringify(hash);
-    };
-
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => ({
             ...prev,
@@ -68,7 +39,8 @@ export default function GeneratePage() {
 
         // Validasi field yang diperlukan untuk generate QR
         if (!formData.merchant_id || !formData.amount || !formData.partner_reference_no) {
-            alert('Harap isi Merchant ID, Amount, dan Partner Reference Number untuk generate QR');
+            // alert('Harap isi Merchant ID, Amount, dan Partner Reference Number untuk generate QR');
+            toast.error('Harap isi Merchant ID, Amount, dan Partner Reference Number untuk generate QR');
             return;
         }
 
@@ -87,22 +59,9 @@ export default function GeneratePage() {
                 }
             };
 
-            const paymentRequestData = {
-                originalReferenceNo: formData.reference_no,
-                originalPartnerReferenceNo: formData.partner_reference_no,
-                transactionStatusDesc: 'Success',
-                paidTime: formData.paid_date || new Date().toISOString(),
-                amount: {
-                    value: formData.amount,
-                    currency: formData.currency
-                }
-            };
-
             const requestBody = JSON.stringify(qrRequestData);
-            console.log('Mengirim data ke API:', qrRequestData);
-
             // Generate X-Signature
-            const secretKey = "HalloHMACsha256";
+            const secretKey: string = process.env.NEXT_PUBLIC_API_SECRET_KEY || '';
             let signature: string;
 
             try {
@@ -137,7 +96,20 @@ export default function GeneratePage() {
 
             const data = await response.json();
             setQrResponse(data);
-            setPaymentRequest(btoa(unescape(encodeURIComponent(JSON.stringify(paymentRequestData, null, 2)))));
+
+            const paymentRequestData = {
+                originalReferenceNo: data.referenceNo,
+                originalPartnerReferenceNo: data.partnerReferenceNo,
+                transactionStatusDesc: 'Pending',
+                paidTime: new Date().toISOString(),
+                amount: {
+                    value: formData.amount,
+                    currency: formData.currency
+                }
+            };
+
+            const encodedData = encodeToBase64URL(paymentRequestData);
+            setPaymentRequest(encodedData);
 
             toast.success('QR Code berhasil digenerate!');
 
@@ -148,6 +120,20 @@ export default function GeneratePage() {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const encodeToBase64URL = (data: any): string => {
+        const jsonString = JSON.stringify(data);
+        console.log('JSON to encode:', jsonString);
+
+        const base64 = btoa(unescape(encodeURIComponent(jsonString)));
+        console.log('Base64 encoded:', base64);
+
+        // Make URL-safe
+        const urlSafe = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        console.log('URL-safe Base64:', urlSafe);
+
+        return urlSafe;
     };
 
     const handleReset = () => {
