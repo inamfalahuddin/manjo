@@ -1,0 +1,30 @@
+# --------------------------------------------------------------------------
+# DEVELOPMENT STAGE: Menggunakan image Go penuh untuk pengembangan
+# --------------------------------------------------------------------------
+FROM golang:1.23-alpine AS dev
+
+# Menginstal alat live-reloading (Air)
+# Kita menggunakan go install karena ini adalah stage dev
+RUN go install github.com/cosmtrek/air@latest
+
+# Set working directory di dalam container
+WORKDIR /app
+
+# Copy go.mod dan go.sum
+COPY go.mod .
+COPY go.sum .
+
+# Download dependencies
+RUN go mod download
+
+# TAHAP KRUSIAL UNTUK DEV:
+# Kita HANYA menyalin file konfigurasi Air dan TIDAK menyalin kode sumber
+# (Kode sumber akan disalin saat runtime via Docker Volume Mounting)
+
+# Expose port aplikasi
+EXPOSE 8000
+
+# Command untuk menjalankan aplikasi menggunakan Air.
+# Air akan memantau folder /app, me-rebuild, dan menjalankan ulang Go binary 
+# setiap kali ada perubahan pada kode yang di-mount.
+CMD ["air"]

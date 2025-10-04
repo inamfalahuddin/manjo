@@ -1,0 +1,253 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Dokumentasi API untuk layanan QR Generator dan Callback.",
+        "title": "QR Payment API",
+        "contact": {
+            "name": "Manjo Developer",
+            "email": "manjo@example.com"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8000",
+    "basePath": "/api/v1",
+    "paths": {
+        "/qr/generate": {
+            "post": {
+                "description": "Endpoint untuk menghasilkan QR code baru dan menyimpan transaksi ke database dengan status PENDING.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "QR"
+                ],
+                "summary": "Generate QR Code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "HMAC-SHA256 Signature (Body Hash)",
+                        "name": "X-Signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Data Transaksi yang dibutuhkan",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/qr-service_internal_model.GenerateQRRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/qr-service_internal_model.GenerateQRResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Validasi input gagal (misalnya Amount \u003c= 0 atau field kosong)",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "401": {
+                        "description": "Signature Hash tidak valid (Unauthorized)",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "500": {
+                        "description": "Gagal menyimpan data transaksi ke database",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    }
+                }
+            }
+        },
+        "/qr/payment": {
+            "post": {
+                "description": "Endpoint callback dari payment gateway untuk mengupdate status transaksi.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "QR"
+                ],
+                "summary": "Process Payment Callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "HMAC-SHA256 Signature (Body Hash)",
+                        "name": "X-Signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Data Callback Payment",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/qr-service_internal_model.PaymentCallbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/qr-service_internal_model.PaymentCallbackResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Input validasi gagal atau data mismatch",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "401": {
+                        "description": "Signature Hash tidak valid",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "404": {
+                        "description": "Reference Number tidak ditemukan",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "500": {
+                        "description": "Gagal mengupdate status transaksi",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "fiber.Map": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "qr-service_internal_model.Amount": {
+            "type": "object",
+            "required": [
+                "currency",
+                "value"
+            ],
+            "properties": {
+                "currency": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "qr-service_internal_model.GenerateQRRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "merchantId",
+                "partnerReferenceNo"
+            ],
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/qr-service_internal_model.Amount"
+                },
+                "merchantId": {
+                    "type": "string"
+                },
+                "partnerReferenceNo": {
+                    "type": "string"
+                }
+            }
+        },
+        "qr-service_internal_model.GenerateQRResponse": {
+            "type": "object",
+            "properties": {
+                "partnerReferenceNo": {
+                    "type": "string"
+                },
+                "qrContent": {
+                    "type": "string"
+                },
+                "referenceNo": {
+                    "type": "string"
+                },
+                "responseCode": {
+                    "type": "string"
+                },
+                "responseMessage": {
+                    "type": "string"
+                }
+            }
+        },
+        "qr-service_internal_model.PaymentCallbackRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "originalPartnerReferenceNo",
+                "originalReferenceNo",
+                "paidTime",
+                "transactionStatusDesc"
+            ],
+            "properties": {
+                "amount": {
+                    "description": "{value: \"10000.00\", currency: \"IDR\"}",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/qr-service_internal_model.Amount"
+                        }
+                    ]
+                },
+                "originalPartnerReferenceNo": {
+                    "description": "PartnerReferenceNo (DIRECT-API-NMS-whhq7gvx58)",
+                    "type": "string"
+                },
+                "originalReferenceNo": {
+                    "description": "ReferenceNo internal (A0000000577)",
+                    "type": "string"
+                },
+                "paidTime": {
+                    "description": "2025-09-21T09:25:00+07:00",
+                    "type": "string"
+                },
+                "transactionStatusDesc": {
+                    "description": "Success, Failed, dll",
+                    "type": "string"
+                }
+            }
+        },
+        "qr-service_internal_model.PaymentCallbackResponse": {
+            "type": "object",
+            "properties": {
+                "responseCode": {
+                    "description": "2005100",
+                    "type": "string"
+                },
+                "responseMessage": {
+                    "description": "Successful",
+                    "type": "string"
+                },
+                "transactionStatusDesc": {
+                    "description": "Success",
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

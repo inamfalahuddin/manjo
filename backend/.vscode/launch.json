@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Program",
+            "type": "go",
+            "request": "launch",
+            // PENTING: Arahkan ke folder yang berisi main.go
+            "program": "${workspaceFolder}/cmd",
+            "env": {
+                // Tambahkan environment variables Anda di sini untuk dijalankan
+                "DATABASE_URL": "host=localhost user=user password=password dbname=qr_db port=5432 sslmode=disable",
+                "HMAC_SECRET": "HalloHMACsha256"
+            }
+        }
+    ]
+}

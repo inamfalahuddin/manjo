@@ -1,0 +1,77 @@
+# version: '3.8'
+
+# services:
+#   db:
+#     # ... (PostgreSQL service remains the same)
+#     image: postgres:14-alpine
+#     restart: always
+#     environment:
+#       POSTGRES_USER: user
+#       POSTGRES_PASSWORD: password
+#       POSTGRES_DB: qr_db
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - db-data:/var/lib/postgresql/data
+
+#   app:
+#     build: .
+#     restart: always
+#     ports:
+#       - "8000:8000"
+#     depends_on:
+#       - db
+#     environment:
+#       DATABASE_URL: "host=db user=user password=password dbname=qr_db port=5432 sslmode=disable"
+#       HMAC_SECRET: "your-secret-key-for-hmac-sha256" # Ganti dengan secret key yang kuat
+
+# volumes:
+#   db-data:
+
+version: '3.8'
+
+services:
+  # ----------------------------------------
+  # PostgreSQL Database Service
+  # ----------------------------------------
+  db:
+    # Menggunakan image PostgreSQL versi 14 yang ringan
+    image: postgres:14-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: qr_db
+      # HMAC_SECRET: "HalloHMACsha256" # Ganti dengan
+    # Port 5432 di host (komputer Anda) dipetakan ke port 5432 di container
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck: # Menambahkan healthcheck agar container app menunggu DB siap
+      test: ["CMD-SHELL", "pg_isready -U user -d qr_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------
+  # Go Application Service (Production/Final Build)
+  # ----------------------------------------
+  app:
+    # Build image menggunakan Dockerfile di direktori saat ini
+    build: .
+    restart: always
+    # KOREKSI: Port 3000 di host dipetakan ke port 3000 di container.
+    # Ini harus sesuai dengan app.Listen(":3000") di cmd/main.go Anda.
+    ports:
+      - "8000:8000" 
+    # Pastikan aplikasi menunggu database sehat sebelum memulai
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "host=db user=user password=password dbname=qr_db port=5432 sslmode=disable"
+      HMAC_SECRET: "HalloHMACsha256"
+
+volumes:
+  db-data:

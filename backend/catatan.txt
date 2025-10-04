@@ -1,0 +1,1 @@
+& "C:\Users\MSI NOTEBOOK\go\bin\swag.exe" init -g "cmd/main.go" --output "docs" --parseDependency
