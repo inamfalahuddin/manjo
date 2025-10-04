@@ -5,9 +5,10 @@ import { Transaction, SearchParams } from '@/types';
 import TransactionTable from './TransactionTable';
 import LoadingSpinner from './LoadingSpinner';
 import { Alert, Button } from '@heroui/react';
-import { Search, RefreshCw, Wifi, WifiOff, Bell, Volume2 } from 'lucide-react';
+import { Search, RefreshCw, Wifi, WifiOff, Bell, Volume2, Plus } from 'lucide-react';
 import { ApiResponse } from '@/types/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useRouter } from 'next/navigation';
 
 // Interface untuk WebSocket message berdasarkan struktur yang benar
 interface WebSocketMessage {
@@ -32,6 +33,8 @@ interface TransactionWithNumber extends Transaction {
 }
 
 export default function MerchantTracker() {
+    const router = useRouter();
+
     const [transactions, setTransactions] = useState<TransactionWithNumber[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -39,6 +42,7 @@ export default function MerchantTracker() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [audioUnlocked, setAudioUnlocked] = useState(false); // Track jika audio sudah di-unlock
+
 
     const [pagination, setPagination] = useState({
         page: 1,
@@ -62,7 +66,7 @@ export default function MerchantTracker() {
         // Hanya jalankan di client side
         if (typeof window !== 'undefined') {
             notificationSoundRef.current = new Audio('/notifications/sound-notification.mp3');
-            notificationSoundRef.current.volume = 0.7; // Set volume (0.0 - 1.0)
+            notificationSoundRef.current.volume = 1.0; // Set volume (0.0 - 1.0)
 
             // Preload audio
             notificationSoundRef.current.load();
@@ -453,6 +457,10 @@ export default function MerchantTracker() {
         unlockAudio();
     };
 
+    const handleButtonGenereate = () => {
+        router.push('/generate')
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8">
             <div className="container mx-auto px-4 max-w-7xl">
@@ -557,8 +565,18 @@ export default function MerchantTracker() {
                             Reconnect
                         </Button>
                     )}
+
+                    <Button
+                        color="primary"
+                        variant="flat"
+                        startContent={<Plus className="w-4 h-4" />}
+                        onPress={handleButtonGenereate}
+                        className="py-2 px-6 bg-black text-white hover:bg-black/80 rounded-lg"
+                    >
+                        Create Transaction
+                    </Button>
                 </div>
-                
+
                 {/* Loading Spinner */}
                 {isLoading && (
                     <div className="flex justify-center my-8">

@@ -40,12 +40,13 @@ export interface TransactionTableProps {
     totalPages?: number;
 }
 
-// Hapus atau comment yang lama jika ada conflict
-
-// export interface TransactionTableProps {
-//     transactions: Transaction[];
-//     onSearch: (params: SearchParams) => Promise<void>;
-//     isLoading: boolean;
-//     itemsPerPage: number;
-//     currentPage: number;
-// }
+export interface PaymentRequestData {
+    originalReferenceNo: string;
+    originalPartnerReferenceNo: string;
+    transactionStatusDesc: string;
+    paidTime: string;
+    amount: {
+        value: string;
+        currency: string;
+    };
+}
