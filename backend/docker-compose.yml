@@ -57,21 +57,21 @@ services:
   # ----------------------------------------
   # Go Application Service (Production/Final Build)
   # ----------------------------------------
-  app:
-    # Build image menggunakan Dockerfile di direktori saat ini
-    build: .
-    restart: always
-    # KOREKSI: Port 3000 di host dipetakan ke port 3000 di container.
-    # Ini harus sesuai dengan app.Listen(":3000") di cmd/main.go Anda.
-    ports:
-      - "8000:8000" 
-    # Pastikan aplikasi menunggu database sehat sebelum memulai
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: "host=db user=user password=password dbname=qr_db port=5432 sslmode=disable"
-      HMAC_SECRET: "HalloHMACsha256"
+  # app:
+  #   # Build image menggunakan Dockerfile di direktori saat ini
+  #   build: .
+  #   restart: always
+  #   # KOREKSI: Port 3000 di host dipetakan ke port 3000 di container.
+  #   # Ini harus sesuai dengan app.Listen(":3000") di cmd/main.go Anda.
+  #   ports:
+  #     - "8000:8000" 
+  #   # Pastikan aplikasi menunggu database sehat sebelum memulai
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_URL: "host=db user=user password=password dbname=qr_db port=5432 sslmode=disable"
+  #     HMAC_SECRET: "HalloHMACsha256"
 
 volumes:
   db-data:

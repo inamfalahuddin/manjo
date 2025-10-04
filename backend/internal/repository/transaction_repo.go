@@ -59,3 +59,64 @@ func (r *TransactionRepository) FindByPartnerReference(partnerRef string) (*mode
 	}
 	return &transaction, nil
 }
+
+func (r *TransactionRepository) GetTransactions(
+	referenceNumber string,
+	customerID string,
+	status string,
+	startDate time.Time,
+	endDate time.Time,
+	search string,
+	page int,
+	limit int,
+) ([]model.Transaction, int64, error) {
+	var transactions []model.Transaction
+	var total int64
+
+	// Build query
+	query := r.DB.Model(&model.Transaction{})
+
+	// Apply filters
+	if referenceNumber != "" {
+		query = query.Where("reference_number LIKE ?", "%"+referenceNumber+"%")
+	}
+
+	if customerID != "" {
+		query = query.Where("customer_id = ?", customerID)
+	}
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if !startDate.IsZero() {
+		query = query.Where("created_at >= ?", startDate)
+	}
+
+	if !endDate.IsZero() {
+		query = query.Where("created_at <= ?", endDate)
+	}
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		query = query.Where(
+			"reference_no LIKE ? OR partner_reference_no LIKE ? OR merchant_id LIKE ? OR trx_id LIKE ?",
+			searchPattern, searchPattern, searchPattern, searchPattern,
+		)
+	}
+	// Count total records
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	offset := (page - 1) * limit
+	query = query.Offset(offset).Limit(limit).Order("created_at DESC")
+
+	// Execute query
+	if err := query.Find(&transactions).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return transactions, total, nil
+}

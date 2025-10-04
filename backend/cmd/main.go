@@ -7,11 +7,12 @@ import (
 	"qr-service/config"
 	"qr-service/internal/handler"
 	"qr-service/internal/repository"
+	"qr-service/internal/router"
 	"qr-service/internal/service"
+	ws "qr-service/pkg/websocket"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/swagger"
 )
 
 // @title QR Payment API
@@ -25,33 +26,19 @@ func main() {
 	// 1. Setup Project Backend: Koneksi DB
 	db := config.SetupDatabase()
 
+	wsHub := ws.NewHub()
+	go wsHub.Run()
+
 	// Inisialisasi komponen MVC
-	repo := repository.NewTransactionRepository(db)
-	svc := service.NewTransactionService(repo)
-	h := handler.TransactionHandler{Service: svc}
+	wsHandler := handler.NewWebSocketHandler(wsHub)
+	transactionRepo := repository.NewTransactionRepository(db)
+	transactionService := service.NewTransactionService(transactionRepo, wsHub)
+	transactionHandler := handler.TransactionHandler{Service: transactionService}
 
 	app := fiber.New()
 	app.Use(logger.New())
 
-	app.Get("/", handler.WelcomeHandler)
-
-	api := app.Group("/api/v1")
-
-	// SETUP SWAGER DOCUMENTATION
-	app.Get("/doc/*", swagger.HandlerDefault)
-
-	// TUGAS 1A: Implementasi QR Generator
-	// Middleware HMAC diterapkan sebelum handler
-	api.Post("/qr/generate", handler.ValidateHMAC, h.GenerateQR)
-
-	// TUGAS 1B: Implementasi QR Payment (Callback)
-	// (Akan diimplementasikan di bagian selanjutnya)
-	api.Post("/qr/payment", handler.ValidateHMAC, h.ProcessPaymentCallback)
-
-	// Utility endpoints (tanpa HMAC validation)
-	// utils := api.Group("/utils")
-	// utils.Post("/generate-signature", h.GenerateSignature)
-	// utils.Post("/debug-signature", h.DebugSignature)
+	router.SetupRoutes(app, &transactionHandler, wsHandler)
 
 	log.Fatal(app.Listen(":8000"))
 }

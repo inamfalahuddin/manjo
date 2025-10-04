@@ -4,6 +4,7 @@ import (
 	"qr-service/internal/model"
 	"qr-service/internal/service"
 	"qr-service/pkg/util"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -147,6 +148,71 @@ func (h *TransactionHandler) ProcessPaymentCallback(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"responseCode":    fiber.StatusInternalServerError,
 			"responseMessage": "Failed to process payment callback: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(resp)
+}
+
+// @Summary Get All Transactions
+// @Description Endpoint untuk mendapatkan semua transaksi dengan filter dan pagination
+// @Tags QR
+// @Accept json
+// @Produce json
+// @Param referenceNumber query string false "Filter by Reference Number"
+// @Param customerId query string false "Filter by Customer ID"
+// @Param status query string false "Filter by Status (Success, Failed, Pending, Expired, Paid, SUCCESS, FAILED, PENDING, EXPIRED)"
+// @Param startDate query string false "Start Date (format: YYYY-MM-DD)"
+// @Param endDate query string false "End Date (format: YYYY-MM-DD)"
+// @Param page query int false "Page number (default: 1)"
+// @Param limit query int false "Limit per page (default: 10, max: 100)"
+// @Success 200 {object} model.GetTransactionsResponse
+// @Failure 400 {object} fiber.Map "Invalid filter parameters"
+// @Failure 500 {object} fiber.Map "Internal server error"
+// @Router /qr/transactions [get]
+func (h *TransactionHandler) GetTransactions(c *fiber.Ctx) error {
+	var req model.GetTransactionsRequest
+
+	// Parse query parameters
+	req.ReferenceNumber = c.Query("referenceNumber")
+	req.CustomerID = c.Query("customerId")
+	req.Status = c.Query("status")
+	req.StartDate = c.Query("startDate")
+	req.EndDate = c.Query("endDate")
+	req.Search = c.Query("search")
+
+	// Parse pagination parameters dengan default values
+	page, err := strconv.Atoi(c.Query("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	req.Page = page
+
+	limit, err := strconv.Atoi(c.Query("limit", "10"))
+	if err != nil || limit < 1 {
+		limit = 10
+	}
+	req.Limit = limit
+
+	// Panggil service
+	resp, err := h.Service.GetTransactions(req)
+	if err != nil {
+		if err.Error() == "invalid status" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"responseCode":    fiber.StatusBadRequest,
+				"responseMessage": "Invalid status parameter",
+			})
+		}
+		if err.Error() == "invalid start date format, use YYYY-MM-DD" ||
+			err.Error() == "invalid end date format, use YYYY-MM-DD" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"responseCode":    fiber.StatusBadRequest,
+				"responseMessage": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"responseCode":    fiber.StatusInternalServerError,
+			"responseMessage": "Failed to retrieve transactions",
 		})
 	}
 

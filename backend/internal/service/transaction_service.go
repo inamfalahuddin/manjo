@@ -1,14 +1,18 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"qr-service/internal/model"
 	"qr-service/internal/repository"
 	"qr-service/pkg/util"
 	"strconv"
 	"strings"
 	"time"
+
+	ws "qr-service/pkg/websocket"
 )
 
 type TransactionService struct {
@@ -16,10 +20,11 @@ type TransactionService struct {
 	RefGenerator util.ReferenceGenerator
 	QRGenerator  util.QRGenerator
 	StatusMapper util.StatusMapper
+	WSHub        *ws.Hub
 }
 
-func NewTransactionService(repo *repository.TransactionRepository) *TransactionService {
-	return &TransactionService{Repo: repo, RefGenerator: util.NewReferenceGenerator("A"), QRGenerator: util.NewQRGenerator(), StatusMapper: util.NewStatusMapper()}
+func NewTransactionService(repo *repository.TransactionRepository, wsHub *ws.Hub) *TransactionService {
+	return &TransactionService{Repo: repo, RefGenerator: util.NewReferenceGenerator("A"), QRGenerator: util.NewQRGenerator(), StatusMapper: util.NewStatusMapper(), WSHub: wsHub}
 }
 
 // Implementasi Endpoint POST /api/v1/qr/generate
@@ -95,9 +100,7 @@ func (s *TransactionService) GenerateQR(req model.GenerateQRRequest) (model.Gene
 	}, nil
 }
 
-// Tambahkan pada file internal/service/transaction_service.go
-// Logika bisnis untuk Callback Payment
-// service/transaction_service.go
+// Implementasi Endpoint POST /api/v1/qr/payment
 func (s *TransactionService) ProcessPaymentCallback(req model.PaymentCallbackRequest) (model.PaymentCallbackResponse, error) {
 	// 1. Parse amount dari string ke float64
 	amount, err := strconv.ParseFloat(req.Amount.Value, 64)
@@ -141,6 +144,11 @@ func (s *TransactionService) ProcessPaymentCallback(req model.PaymentCallbackReq
 		if err != nil {
 			return model.PaymentCallbackResponse{}, errors.New("failed to update status: " + err.Error())
 		}
+
+		updatedTrx, err := s.Repo.FindByReferenceNo(req.OriginalReferenceNo)
+		if err == nil {
+			s.broadcastTransactionUpdate(&updatedTrx)
+		}
 	}
 
 	// 9. Return response sesuai format yang diminta
@@ -149,4 +157,126 @@ func (s *TransactionService) ProcessPaymentCallback(req model.PaymentCallbackReq
 		ResponseMessage:       "Successful",
 		TransactionStatusDesc: req.TransactionStatusDesc,
 	}, nil
+}
+
+// Implementasi Endpoint GET /api/v1/transactions
+func (s *TransactionService) GetTransactions(req model.GetTransactionsRequest) (*model.GetTransactionsResponse, error) {
+	// Validasi dan mapping status jika ada
+	if req.Status != "" {
+		if !s.StatusMapper.IsValidStatus(req.Status) {
+			return nil, fmt.Errorf("invalid status: %s", req.Status)
+		}
+		// Map external status ke internal status jika perlu
+		req.Status = s.StatusMapper.GetInternalStatus(req.Status)
+	}
+
+	// Set default values untuk pagination
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+
+	// Parse dates jika ada
+	var startTime, endTime time.Time
+	var err error
+
+	if req.StartDate != "" {
+		startTime, err = time.Parse("2006-01-02", req.StartDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid start date format, use YYYY-MM-DD")
+		}
+	}
+
+	if req.EndDate != "" {
+		endTime, err = time.Parse("2006-01-02", req.EndDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid end date format, use YYYY-MM-DD")
+		}
+		// Set end time to end of day
+		endTime = endTime.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	}
+
+	// Panggil repository
+	transactions, total, err := s.Repo.GetTransactions(
+		req.ReferenceNumber,
+		req.CustomerID,
+		req.Status,
+		startTime,
+		endTime,
+		req.Search,
+		req.Page,
+		req.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map ke response
+	var transactionResponses []model.TransactionResponse
+	for _, transaction := range transactions {
+		transactionResponses = append(transactionResponses, model.TransactionResponse{
+			TrxID:           transaction.TrxID,
+			MerchantID:      transaction.MerchantID,
+			ReferenceNo:     transaction.ReferenceNo,
+			Amount:          transaction.Amount,
+			Status:          transaction.Status,
+			TransactionDate: transaction.TransactionDate,
+			PaidDate:        transaction.PaidDate,
+			Currency:        transaction.Currency,
+			CreatedAt:       transaction.CreatedAt,
+			UpdatedAt:       transaction.UpdatedAt,
+		})
+	}
+
+	// Hitung pagination
+	totalPage := int((total + int64(req.Limit) - 1) / int64(req.Limit))
+
+	response := &model.GetTransactionsResponse{
+		ResponseCode:    "200",
+		ResponseMessage: "Success",
+		Data:            transactionResponses,
+		Pagination: &model.PaginationInfo{
+			Page:      req.Page,
+			Limit:     req.Limit,
+			Total:     int(total),
+			TotalPage: totalPage,
+		},
+	}
+
+	return response, nil
+}
+
+func (s *TransactionService) broadcastTransactionUpdate(transaction *model.Transaction) {
+	if s.WSHub != nil {
+		updateData := map[string]interface{}{
+			"type":               "TRANSACTION_UPDATE",
+			"id":                 transaction.ID,
+			"referenceNo":        transaction.ReferenceNo,
+			"partnerReferenceNo": transaction.PartnerReferenceNo,
+			"merchantId":         transaction.MerchantID,
+			"amount":             transaction.Amount,
+			"status":             transaction.Status,
+			"transactionDate":    transaction.TransactionDate.Format(time.RFC3339),
+			"paidDate":           nil,
+			"updatedAt":          transaction.UpdatedAt.Format(time.RFC3339),
+			"timestamp":          time.Now().Unix(),
+		}
+
+		// Format paidDate jika ada
+		if transaction.PaidDate != nil {
+			updateData["paidDate"] = transaction.PaidDate.Format(time.RFC3339)
+		}
+
+		// Convert ke JSON dan broadcast
+		messageBytes, err := json.Marshal(updateData)
+		if err == nil {
+			s.WSHub.Broadcast(messageBytes)
+			log.Printf("📢 Broadcast transaction update: %s - %s", transaction.ReferenceNo, transaction.Status)
+		}
+	}
 }
