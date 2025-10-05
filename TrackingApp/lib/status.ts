@@ -23,6 +23,12 @@ const statusConfig: Record<string, StatusConfigItem> = {
         bgColor: '#dcfce7', // Hijau muda
         textColor: '#166534', // Hijau tua
     },
+    paid: {
+        text: 'Paid',
+        icon: Check,
+        bgColor: '#dcfce7', // Hijau muda
+        textColor: '#166534', // Hijau tua
+    },
     failed: {
         text: 'Failed',
         icon: X,

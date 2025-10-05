@@ -160,7 +160,7 @@ func WelcomeHandler(c *fiber.Ctx) error {
 				</div>
 				
 				<div class="links">
-					<a href="/doc/" class="link-card">
+					<a href="/docs/" class="link-card">
 						<h4>📚 API Documentation</h4>
 						<p>Dokumentasi lengkap Swagger untuk semua endpoint API</p>
 					</a>
